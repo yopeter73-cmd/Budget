@@ -71,7 +71,7 @@ if st.sidebar.button('🔄 Reset Budget'):
     st.rerun()
 
 # Main content
-st.title('🚗 Car Maintenance Budget Tracker')
+st.title(' Budget Tracker')
 
 # Form in columns for better layout
 col1, col2 = st.columns(2)
