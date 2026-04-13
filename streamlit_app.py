@@ -11,26 +11,6 @@ USER_DB = {
     "guest": "password"
 }
 
-# --- ADMIN PRIVILEGES LOGIC ---
-
-# 1. Check if the logged-in user is 'admin'
-is_admin = (st.session_state.username == "admin")
-
-if is_admin:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("👑 Admin Control Panel")
-    
-    # Privilege: View other users' data
-    # This looks for any file ending in '_budget.csv' in your folder
-    all_files = [f.stem.replace('_budget', '') for f in Path('.').glob('*_budget.csv')]
-    
-    selected_user = st.sidebar.selectbox("View User Data", all_files)
-    
-    if st.sidebar.button("Switch View"):
-        # Temporarily point the app to the selected user's file
-        budget_file = Path(f'{selected_user}_budget.csv')
-        st.sidebar.info(f"Now viewing: {selected_user}")
-
 # --- LOGIN LOGIC ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -169,6 +149,26 @@ if submit:
 
 st.header('📋 Monthly Budget Overview')
 st.dataframe(budget_df, use_container_width=True)
+
+# --- ADMIN PRIVILEGES LOGIC ---
+
+# 1. Check if the logged-in user is 'admin'
+is_admin = (st.session_state.username == "admin")
+
+if is_admin:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("👑 Admin Control Panel")
+    
+    # Privilege: View other users' data
+    # This looks for any file ending in '_budget.csv' in your folder
+    all_files = [f.stem.replace('_budget', '') for f in Path('.').glob('*_budget.csv')]
+    
+    selected_user = st.sidebar.selectbox("View User Data", all_files)
+    
+    if st.sidebar.button("Switch View"):
+        # Temporarily point the app to the selected user's file
+        budget_file = Path(f'{selected_user}_budget.csv')
+        st.sidebar.info(f"Now viewing: {selected_user}")
 
 # Summary section
 st.header('💡 Summary')
