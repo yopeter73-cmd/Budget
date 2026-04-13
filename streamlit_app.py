@@ -2,8 +2,41 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 
-budget_file = Path('budget_template.csv')
 months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'August', 'Sept', 'Oct', 'Nov', 'Dec']
+
+# Simple User Database (Username: Password)
+USER_DB = {
+    "admin": "1234",
+    "pete": "python2026",
+    "guest": "password"
+}
+
+# --- LOGIN LOGIC ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+
+def login_page():
+    st.title("🔐 Budget Tracker Login")
+    with st.form("login_form"):
+        user = st.text_input("Username")
+        pw = st.text_input("Password", type="password")
+        if st.form_submit_button("Login"):
+            if user in USER_DB and USER_DB[user] == pw:
+                st.session_state.logged_in = True
+                st.session_state.username = user
+                st.rerun()
+            else:
+                st.error("Invalid username or password")
+
+if not st.session_state.logged_in:
+    login_page()
+    st.stop() # Stops the rest of the app from running until logged in
+
+# --- INDIVIDUAL DATA SEPARATION ---
+# Create a unique filename based on the logged-in username
+current_user = st.session_state.username
+budget_file = Path(f'{current_user}_budget.csv')
 
 def check_budget_status(row):
     if row['Expense'] > row['Deposit']:
@@ -41,12 +74,21 @@ def load_budget(path=budget_file):
 def save_budget(df, path=budget_file):
     df.to_csv(path, index=False)
 
+# --- MAIN APP INTERFACE ---
+st.set_page_config(page_title=f"{current_user.capitalize()}'s Budget", layout="wide")
+
+# Sidebar
+st.sidebar.title(f'👤 User: {current_user.capitalize()}')
+if st.sidebar.button('Logout'):
+    st.session_state.logged_in = False
+    st.rerun()
 
 # Load data
 df = load_budget()
 budget_df = compute_budget_metrics(df)
 
 # Sidebar for quick stats
+st.sidebar.divider()
 st.sidebar.title('📊 Quick Stats')
 total_deposits = budget_df['Deposit'].sum()
 total_expenses = budget_df['Expense'].sum()
@@ -71,7 +113,7 @@ if st.sidebar.button('🔄 Reset Budget'):
     st.rerun()
 
 # Main content
-st.title(' Budget Tracker')
+st.title(f'Welcome back, {current_user.capitalize()}!')
 
 # Form in columns for better layout
 col1, col2 = st.columns(2)
@@ -117,4 +159,5 @@ else:
     st.success('All months are within budget or have no data!')
 
 st.info('💡 Tip: Track your deposits and expenses monthly to maintain a positive running balance.')
+
 
