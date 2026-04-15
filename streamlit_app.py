@@ -1,183 +1,139 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+import os
 
+# --- CONFIGURATION & PATHS ---
+USER_FILE = Path("users.csv")
 months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'August', 'Sept', 'Oct', 'Nov', 'Dec']
 
-# Simple User Database (Username: Password)
-USER_DB = {
-    "admin": "1234",
-    "pete": "python2026",
-    "guest": "password"
-}
+# --- USER MANAGEMENT FUNCTIONS ---
+def load_users():
+    if USER_FILE.exists():
+        return pd.read_csv(USER_FILE)
+    return pd.DataFrame(columns=["username", "password"])
 
-# --- LOGIN LOGIC ---
+def save_user(username, password):
+    users = load_users()
+    if username in users['username'].values:
+        return False
+    new_user = pd.DataFrame([[username, password]], columns=["username", "password"])
+    users = pd.concat([users, new_user], ignore_index=True)
+    users.to_csv(USER_FILE, index=False)
+    return True
+
+# --- SESSION STATE INIT ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
+if 'viewing_user' not in st.session_state:
+    st.session_state.viewing_user = ""
 
-def login_page():
-    st.title("🔐 Budget Tracker Login")
-    with st.form("login_form"):
-        user = st.text_input("Username")
-        pw = st.text_input("Password", type="password")
-        if st.form_submit_button("Login"):
-            if user in USER_DB and USER_DB[user] == pw:
-                st.session_state.logged_in = True
-                st.session_state.username = user
-                st.rerun()
-            else:
-                st.error("Invalid username or password")
-
+# --- AUTHENTICATION UI ---
 if not st.session_state.logged_in:
-    login_page()
-    st.stop() # Stops the rest of the app from running until logged in
+    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    
+    with tab1:
+        st.title("🔐 Login")
+        with st.form("login_form"):
+            user = st.text_input("Username").lower()
+            pw = st.text_input("Password", type="password")
+            if st.form_submit_button("Login"):
+                users = load_users()
+                if user == "admin" and pw == "1234": # Master Admin
+                    st.session_state.logged_in = True
+                    st.session_state.username = "admin"
+                    st.session_state.viewing_user = "admin"
+                    st.rerun()
+                elif not users[(users['username'] == user) & (users['password'] == pw)].empty:
+                    st.session_state.logged_in = True
+                    st.session_state.username = user
+                    st.session_state.viewing_user = user
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
 
-# --- INDIVIDUAL DATA SEPARATION ---
-# Create a unique filename based on the logged-in username
-current_user = st.session_state.username
-budget_file = Path(f'{current_user}_budget.csv')
+    with tab2:
+        st.title("📝 Create Account")
+        with st.form("signup_form"):
+            new_user = st.text_input("New Username").lower()
+            new_pw = st.text_input("New Password", type="password")
+            confirm_pw = st.text_input("Confirm Password", type="password")
+            if st.form_submit_button("Sign Up"):
+                if new_pw != confirm_pw:
+                    st.error("Passwords do not match")
+                elif len(new_user) < 3:
+                    st.error("Username too short")
+                else:
+                    if save_user(new_user, new_pw):
+                        st.success("Account created! Go to Login tab.")
+                    else:
+                        st.error("Username already exists")
+    st.stop()
 
-def check_budget_status(row):
-    if row['Expense'] > row['Deposit']:
-        return '⚠️ Over Budget'
-    elif row['Deposit'] == 0 and row['Expense'] == 0:
-        return 'No Data'
-    else:
-        return '✅ Within Budget'
+# --- ADMIN SWITCH LOGIC (FIXED) ---
+# We use st.session_state.viewing_user to decide WHICH file to load
+if st.session_state.username == "admin":
+    st.sidebar.subheader("👑 Admin Control")
+    all_user_files = [f.stem.replace('_budget', '') for f in Path('.').glob('*_budget.csv')]
+    if st.session_state.username not in all_user_files: all_user_files.append(st.session_state.username)
+    
+    selected = st.sidebar.selectbox("Switch to User View:", all_user_files, index=all_user_files.index(st.session_state.viewing_user))
+    if st.sidebar.button("Update View"):
+        st.session_state.viewing_user = selected
+        st.rerun()
 
+# --- DATA LOAD ---
+current_view = st.session_state.viewing_user
+budget_file = Path(f'{current_view}_budget.csv')
 
-def compute_budget_metrics(df):
-    budget_df = df.copy()
-    budget_df['Monthly_Savings'] = budget_df['Deposit'] - budget_df['Expense']
-    budget_df['Running_Balance'] = budget_df['Monthly_Savings'].cumsum()
-    budget_df['Status'] = budget_df.apply(check_budget_status, axis=1)
-    return budget_df[['Month', 'Deposit', 'Expense', 'Monthly_Savings', 'Running_Balance', 'Status', 'Notes']]
+def load_budget():
+    if budget_file.exists():
+        return pd.read_csv(budget_file)
+    return pd.DataFrame({'Month': months, 'Deposit': [0.0]*12, 'Expense': [0.0]*12, 'Notes': ['']*12})
 
+def save_budget(df):
+    df.to_csv(budget_file, index=False)
 
-def load_budget(path=budget_file):
-    if path.exists():
-        df = pd.read_csv(path)
-        df['Notes'] = df['Notes'].fillna('')
-        df['Deposit'] = df['Deposit'].fillna(0.0)
-        df['Expense'] = df['Expense'].fillna(0.0)
-    else:
-        df = pd.DataFrame({
-            'Month': months,
-            'Deposit': [0.0] * len(months),
-            'Expense': [0.0] * len(months),
-            'Notes': [''] * len(months)
-        })
-    return df
+df = load_budget()
 
-
-def save_budget(df, path=budget_file):
-    df.to_csv(path, index=False)
-
-# --- MAIN APP INTERFACE ---
-st.set_page_config(page_title=f"{current_user.capitalize()}'s Budget", layout="wide")
-
-# Sidebar
-st.sidebar.title(f'👤 User: {current_user.capitalize()}')
-if st.sidebar.button('Logout'):
+# --- MAIN APP ---
+st.title(f"Budget Tracker: {current_view.capitalize()}")
+if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.rerun()
 
-# Load data
-df = load_budget()
-budget_df = compute_budget_metrics(df)
+# --- EDIT/UPDATE SECTION ---
+st.subheader("📝 Edit or Add Data")
+with st.form("edit_form"):
+    month = st.selectbox("Month to Edit", months)
+    # Automatically fill existing data if it exists
+    existing_row = df[df['Month'] == month]
+    def_dep = float(existing_row['Deposit'].iloc[0]) if not existing_row.empty else 0.0
+    def_exp = float(existing_row['Expense'].iloc[0]) if not existing_row.empty else 0.0
+    def_note = str(existing_row['Notes'].iloc[0]) if not existing_row.empty else ""
 
-# Sidebar for quick stats
-st.sidebar.divider()
-st.sidebar.title('📊 Quick Stats')
-total_deposits = budget_df['Deposit'].sum()
-total_expenses = budget_df['Expense'].sum()
-total_savings = budget_df['Monthly_Savings'].sum()
-final_balance = budget_df['Running_Balance'].iloc[-1] if not budget_df.empty else 0.0
+    col1, col2 = st.columns(2)
+    dep = col1.number_input("Deposit ($)", value=def_dep)
+    exp = col2.number_input("Expense ($)", value=def_exp)
+    note = st.text_input("Notes", value=def_note)
+    
+    if st.form_submit_button("Update Month"):
+        df.loc[df['Month'] == month, ['Deposit', 'Expense', 'Notes']] = [dep, exp, note]
+        save_budget(df)
+        st.success(f"Updated {month}")
+        st.rerun()
 
-st.sidebar.metric('Total Deposits', f'${total_deposits:.2f}')
-st.sidebar.metric('Total Expenses', f'${total_expenses:.2f}')
-st.sidebar.metric('Net Savings', f'${total_savings:.2f}')
-st.sidebar.metric('Final Balance', f'${final_balance:.2f}')
+# --- VISUALS ---
+st.divider()
+budget_df = df.copy()
+budget_df['Monthly_Savings'] = budget_df['Deposit'] - budget_df['Expense']
+budget_df['Running_Balance'] = budget_df['Monthly_Savings'].cumsum()
 
-# Reset button in sidebar
-if st.sidebar.button('🔄 Reset Budget'):
-    df = pd.DataFrame({
-        'Month': months,
-        'Deposit': [0.0] * len(months),
-        'Expense': [0.0] * len(months),
-        'Notes': [''] * len(months)
-    })
-    save_budget(df)
-    st.sidebar.success('Budget reset!')
-    st.rerun()
-
-# Main content
-st.title(f'Welcome back, {current_user.capitalize()}!')
-
-# Form in columns for better layout
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader('Add / Update Entry')
-    with st.form('budget_form'):
-        month = st.selectbox('Select Month', months)
-        deposit = st.number_input('Deposit Amount ($)', min_value=0.0, format='%.2f')
-        expense = st.number_input('Expense Amount ($)', min_value=0.0, format='%.2f')
-        notes = st.text_input('Notes')
-        submit = st.form_submit_button('Submit Entry')
-
-with col2:
-    st.subheader('Running Balance Chart')
-    if not budget_df.empty:
-        st.line_chart(budget_df.set_index('Month')['Running_Balance'])
-    else:
-        st.write('No data to display.')
-
-if submit:
-    if month in df['Month'].values:
-        df.loc[df['Month'] == month, ['Deposit', 'Expense', 'Notes']] = [deposit, expense, notes]
-        st.success(f'Updated entry for {month}!')
-    else:
-        new_entry = pd.DataFrame([{'Month': month, 'Deposit': deposit, 'Expense': expense, 'Notes': notes}])
-        df = pd.concat([df, new_entry], ignore_index=True)
-        st.success(f'Added entry for {month}!')
-
-    budget_df = compute_budget_metrics(df)
-    save_budget(budget_df)
-    st.rerun()
-
-st.header('📋 Monthly Budget Overview')
+st.subheader("📋 Monthly Overview")
 st.dataframe(budget_df, use_container_width=True)
 
-# --- ADMIN PRIVILEGES LOGIC ---
-
-# 1. Check if the logged-in user is 'admin'
-is_admin = (st.session_state.username == "admin")
-
-if is_admin:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("👑 Admin Control Panel")
-    
-    # Privilege: View other users' data
-    # This looks for any file ending in '_budget.csv' in your folder
-    all_files = [f.stem.replace('_budget', '') for f in Path('.').glob('*_budget.csv')]
-    
-    selected_user = st.sidebar.selectbox("View User Data", all_files)
-    
-    if st.sidebar.button("Switch View"):
-        # Temporarily point the app to the selected user's file
-        budget_file = Path(f'{selected_user}_budget.csv')
-        st.sidebar.info(f"Now viewing: {selected_user}")
-
-# Summary section
-st.header('💡 Summary')
-over_budget_months = budget_df[budget_df['Status'] == '⚠️ Over Budget']['Month'].tolist()
-if over_budget_months:
-    st.warning(f'Months over budget: {", ".join(over_budget_months)}')
-else:
-    st.success('All months are within budget or have no data!')
-
-st.info('💡 Tip: Track your deposits and expenses monthly to maintain a positive running balance.')
+st.subheader("📈 Balance Trend")
+st.line_chart(budget_df.set_index('Month')['Running_Balance'])
 
 
